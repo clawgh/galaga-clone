@@ -24,8 +24,9 @@ function resize(){
 window.addEventListener('resize',resize);resize();
 
 const K={};
-document.addEventListener('keydown',e=>{K[e.code]=1;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyX'].includes(e.code))e.preventDefault()});
+document.addEventListener('keydown',e=>{K[e.code]=1;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyX','KeyZ'].includes(e.code))e.preventDefault()});
 document.addEventListener('keyup',e=>K[e.code]=0);
+document.addEventListener('mousedown',()=>{if(!audioCtx)initAudio()});
 
 function rand(a,b){return Math.random()*(b-a)+a}
 function randInt(a,b){return Math.floor(rand(a,b+1))}
@@ -86,6 +87,10 @@ function playHoming(){playSound(1200,0.04,'sine',0.04);setTimeout(()=>playSound(
 function playDroneFire(){playSound(1500,0.03,'sine',0.02)}
 function playAsteroidHit(){playSound(140,0.15,'triangle',0.05)}
 function playCarrierSpawn(){playSound(350,0.12,'square',0.05)}
+function playUpgrade(){playSound(440,0.1,'sine',0.05);setTimeout(()=>playSound(660,0.1,'sine',0.05),100);setTimeout(()=>playSound(880,0.15,'sine',0.06),200)}
+function playGravity(){playSound(160,0.4,'sine',0.04)}
+function playSplit(){playSound(500,0.06,'square',0.05);playSound(400,0.1,'triangle',0.04)}
+function playPierce(){playSound(2000,0.05,'sine',0.03)}
 
 // ===================== BACKGROUND =====================
 const nebCanvas=document.createElement('canvas');
@@ -238,6 +243,7 @@ function fireBullet(x,y,vx,vy,isEnemy,color,opts){
   b.age=0;
   if(opts){
     if(opts.homing)b.homing=true,b.turnRate=opts.turnRate||0.06,b.homingTarget=null;
+    if(opts.gravity)b.gravity=true,b.gravityStrength=opts.gravityStrength||0.0004;
   }
   isEnemy?eBullets.push(b):pBullets.push(b);
   if(!isEnemy&&!opts?.silent)playShoot();
@@ -260,6 +266,9 @@ function playerFire(x,y){
     fireBullet(x-4,y,0,-6,false,'#f80',{homing:true,turnRate:0.08});
     fireBullet(x+4,y,0,-6,false,'#f80',{homing:true,turnRate:0.08});
     playHoming();
+  }else if(powerup==='pierce'){
+    fireBullet(x,y,0,-10,false,'#ff8',{pierce:true});
+    playPierce();
   }else{
     fireBullet(x,y,0,-8,false,'#0ff');
   }
@@ -269,7 +278,7 @@ function bossFirePattern(x,y,pattern,bossPhase,px,py){
   const spd=2.5+bossPhase*0.5;
   if(pattern===0){
     const dx=px-x,dy=py-y,len=Math.hypot(dx,dy);
-    if(len>0)fireBullet(x,y,(dx/len)*spd,(dy/len)*spd,true,'#f44');
+    if(len>0)fireBullet(x,y,(dx/len)*spd,(dy/len)*spd,true,'#f44',{gravity:true,gravityStrength:0.0003+bossPhase*0.0001});
   }else if(pattern===1){
     const count=6+bossPhase*2;
     for(let i=0;i<count;i++){
@@ -279,12 +288,12 @@ function bossFirePattern(x,y,pattern,bossPhase,px,py){
   }else if(pattern===2){
     for(let i=0;i<3+bossPhase;i++){
       const a=-0.4+0.4*i+Math.sin(Date.now()*0.005)*0.3;
-      fireBullet(x,y,Math.sin(a)*spd,Math.cos(a)*spd,true,'#f44');
+      fireBullet(x,y,Math.sin(a)*spd,Math.cos(a)*spd,true,'#f44',{gravity:true,gravityStrength:0.0005});
     }
   }else if(pattern===3){
     for(let i=0;i<12+bossPhase*3;i++){
       const a=(Math.PI*2/(12+bossPhase*3))*i;
-      fireBullet(x,y,Math.cos(a)*1.5,Math.sin(a)*1.5+1,true,'#f0f');
+      fireBullet(x,y,Math.cos(a)*1.5,Math.sin(a)*1.5+1,true,'#f0f',{gravity:true,gravityStrength:0.0002});
     }
   }
 }
@@ -325,6 +334,15 @@ function updateBullets(dt){
   }
   for(let i=eBullets.length-1;i>=0;i--){
     const b=eBullets[i];
+    if(b.gravity&&player.active){
+      const dx=player.x-b.x,dy=player.y-b.y;
+      const d2=dx*dx+dy*dy;
+      if(d2>100){
+        const dist=Math.sqrt(d2);
+        b.vx+=dx/dist*b.gravityStrength*dt;
+        b.vy+=dy/dist*b.gravityStrength*dt;
+      }
+    }
     b.x+=b.vx;b.y+=b.vy;
     if(b.y>H+20||b.x<-20||b.x>W+20)eBullets.splice(i,1);
   }
@@ -353,8 +371,16 @@ function drawBullets(){
     ctx.shadowBlur=8;ctx.shadowColor=b.color;
     ctx.fillStyle=b.color;
     ctx.beginPath();
-    ctx.arc(b.x,b.y,3,0,Math.PI*2);
-    ctx.fill();
+    if(b.gravity){
+      ctx.arc(b.x,b.y,4,0,Math.PI*2);
+      ctx.fillStyle='#fa0';
+      ctx.fill();
+      ctx.fillStyle='#fff';
+      ctx.beginPath();ctx.arc(b.x,b.y,2,0,Math.PI*2);ctx.fill();
+    }else{
+      ctx.arc(b.x,b.y,3,0,Math.PI*2);
+      ctx.fill();
+    }
     ctx.shadowBlur=0;
   }
 }
@@ -396,7 +422,7 @@ function updateAsteroids(dt){
     for(let j=pBullets.length-1;j>=0;j--){
       const b=pBullets[j];
       if(dist(b.x,b.y,a.x,a.y)<a.r+5){
-        pBullets.splice(j,1);
+        if(!b.pierce){pBullets.splice(j,1);}
         a.hp--;
         spawnParticles(a.x,a.y,5,'#ba9',2,15,2);
         if(a.hp<=0){
@@ -437,8 +463,8 @@ function drawAsteroids(){
 }
 
 // ===================== POWERUPS =====================
-const POWERUP_TYPES=['rapid','spread','double','laser','shield','bomb','homing','drone'];
-const POWERUP_COLORS={rapid:'#ff0',spread:'#0ff',double:'#0f0',laser:'#f0f',shield:'#08f',bomb:'#f44',homing:'#f80',drone:'#0fa'};
+const POWERUP_TYPES=['rapid','spread','double','laser','shield','bomb','homing','drone','pierce','gravity'];
+const POWERUP_COLORS={rapid:'#ff0',spread:'#0ff',double:'#0f0',laser:'#f0f',shield:'#08f',bomb:'#f44',homing:'#f80',drone:'#0fa',pierce:'#ff8',gravity:'#0f8'};
 let powerups=[];
 let powerup=null,powerupTimer=0;
 let hasShield=false;
@@ -486,6 +512,13 @@ function collectPowerup(pu){
     addPopup(pu.x,pu.y,'DRONES!',POWERUP_COLORS[t]);
     return;
   }
+  if(t==='gravity'){
+    powerup=t;powerupTimer=8000;
+    player.drones=[];
+    playGravity();
+    addPopup(pu.x,pu.y,'GRAVITY!',POWERUP_COLORS[t]);
+    return;
+  }
   powerup=t;powerupTimer=8000;
   player.drones=[];
   addPopup(pu.x,pu.y,t.toUpperCase()+'!',POWERUP_COLORS[t]);
@@ -503,7 +536,11 @@ function drawPowerups(){
     ctx.beginPath();ctx.arc(0,0,s-2,0,Math.PI*2);ctx.fill();
     ctx.globalAlpha=1;
     ctx.fillStyle='#fff';ctx.font='bold 10px monospace';ctx.textAlign='center';
-    ctx.fillText(pu.type[0].toUpperCase(),0,4);
+
+    if(pu.type==='pierce'){ctx.fillText('P',0,4)}
+    else if(pu.type==='gravity'){ctx.fillText('G',0,4)}
+    else{ctx.fillText(pu.type[0].toUpperCase(),0,4)}
+
     ctx.shadowBlur=0;
     ctx.restore();
   }
@@ -552,6 +589,8 @@ function drawDrones(){
 
 // ===================== ENEMIES =====================
 const COLS=5,ROWS=5,ESX=38,ESY=30,FORMY=60;
+let enemies=[],formAngle=0,diveTimer=0,formationPattern=0,formationPatternTimer=0;
+let sideSpawnTimer=0;
 
 function createEnemies(wave,isBossWave){
   const arr=[];
@@ -591,8 +630,6 @@ function createEnemies(wave,isBossWave){
   return arr;
 }
 
-let enemies=[],formAngle=0,diveTimer=0,formationPattern=0,formationPatternTimer=0;
-
 function startDive(e,px){
   if(!e.alive||e.state!=='formation')return;
   e.state='dive';e.diveP=0;
@@ -601,6 +638,30 @@ function startDive(e,px){
   e.targetY=rand(400,520);
   e.amp=rand(40,90);
   e.shootT=rand(0.3,1)*1000;
+}
+
+function spawnSideEnemies(wave,px){
+  if(!player.active)return;
+  const types=[
+    {type:5,color:'#fa0',pts:150,hp:1},
+    {type:6,color:'#f8f',pts:250,hp:3}
+  ];
+  const chosen=types[randInt(0,types.length-1)];
+  const side=Math.random()>0.5?1:-1;
+  const x=side===1?W+20:-20;
+  const y=rand(80,300);
+  const targetX=px+rand(-100,100);
+  enemies.push({
+    x,y,fx:0,fy:0,type:chosen.type,col:0,row:0,
+    state:'dive',alive:true,diveP:0,
+    startX:x,startY:y,
+    targetX:clamp(targetX,40,W-40),targetY:H+40,
+    amp:rand(40,80),diveSpd:0.0006+wave*0.00005,retP:0,retSpd:0,
+    shootT:3000,pts:chosen.pts,color:chosen.color,
+    divePattern:randInt(0,3),wingPhase:0,
+    formationOffset:{x:0,y:0},
+    hp:chosen.hp,split:chosen.type===6
+  });
 }
 
 function updateEnemies(dt,px,wave){
@@ -613,6 +674,14 @@ function updateEnemies(dt,px,wave){
   }
 
   const diving=enemies.some(e=>e.alive&&e.state==='dive');
+
+  // Side spawns during wave
+  sideSpawnTimer-=dt;
+  if(sideSpawnTimer<=0&&!diving&&wave>=2&&enemies.some(e=>e.alive&&e.state==='formation')){
+    if(Math.random()<0.4)spawnSideEnemies(wave,px);
+    sideSpawnTimer=rand(4000,8000)-wave*200;
+    if(sideSpawnTimer<2000)sideSpawnTimer=2000;
+  }
 
   for(const e of enemies){
     if(!e.alive)continue;
@@ -696,7 +765,7 @@ function updateEnemies(dt,px,wave){
       e.diveP+=e.diveSpd*dt;
       if(e.diveP>=1){
         e.diveP=1;
-        if(e.type===4){e.alive=false;continue;}
+        if(e.type===4||e.type===5){e.alive=false;continue;}
         e.retP=0;e.startX=e.x;e.startY=e.y;
         e.state='return';continue;
       }
@@ -716,12 +785,16 @@ function updateEnemies(dt,px,wave){
         e.y=e.startY+(e.targetY-e.startY)*t-Math.sin(t*Math.PI)*50;
       }
 
-      if(e.type!==4&&eBullets.length<8&&t>0.15&&t<0.85){
+      if(e.type!==4&&e.type!==5&&e.type!==6&&eBullets.length<8&&t>0.15&&t<0.85){
         e.shootT-=dt;
         if(e.shootT<=0){
-          fireBullet(e.x,e.y+8,rand(-0.5,0.5),2.5+wave*0.2,true,'#f44');
+          const grav=wave>=2?Math.random()<0.15:false;
+          fireBullet(e.x,e.y+8,rand(-0.5,0.5),2.5+wave*0.2,true,'#f44',grav?{gravity:true,gravityStrength:0.0003}:undefined);
           e.shootT=rand(0.8,2)*1000;
         }
+      }else if(e.type===5&&t>0.3){
+        e.targetX=player.x;
+        e.targetY=player.y;
       }
     }
     else if(e.state==='return'){
@@ -766,6 +839,41 @@ function drawEnemies(){
       ctx.beginPath();
       ctx.moveTo(0,-8);ctx.lineTo(-6,4);ctx.lineTo(0,6);ctx.lineTo(6,4);
       ctx.closePath();ctx.fill();
+      ctx.shadowBlur=0;ctx.restore();continue;
+    }
+
+    if(e.type===5){
+      ctx.fillStyle=e.color||'#fa0';ctx.shadowBlur=10;ctx.shadowColor=e.color||'#fa0';
+      ctx.beginPath();
+      ctx.moveTo(0,-10);ctx.lineTo(-8,-2);ctx.lineTo(-6,8);
+      ctx.lineTo(-2,6);ctx.lineTo(0,10);ctx.lineTo(2,6);
+      ctx.lineTo(6,8);ctx.lineTo(8,-2);
+      ctx.closePath();ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.3)';
+      ctx.fillRect(-2,-2,4,4);
+      ctx.shadowBlur=0;ctx.restore();continue;
+    }
+
+    if(e.type===6){
+      ctx.fillStyle=e.color||'#f8f';ctx.shadowBlur=12;ctx.shadowColor=e.color||'#f8f';
+      ctx.beginPath();
+      const wf=Math.sin(e.wingPhase)*2;
+      ctx.moveTo(0,-14-wf);ctx.lineTo(-12,0);ctx.lineTo(-10,10);
+      ctx.lineTo(-4,8);ctx.lineTo(0,12);ctx.lineTo(4,8);
+      ctx.lineTo(10,10);ctx.lineTo(12,0);
+      ctx.closePath();ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.4)';ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(0,-14-wf);ctx.lineTo(-12,0);ctx.lineTo(-10,10);
+      ctx.lineTo(-4,8);ctx.lineTo(0,12);ctx.lineTo(4,8);
+      ctx.lineTo(10,10);ctx.lineTo(12,0);
+      ctx.closePath();ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,0.2)';
+      ctx.fillRect(-2,-3,4,6);
+      if(e.hp>1){
+        ctx.fillStyle='#fff';ctx.font='8px monospace';ctx.textAlign='center';
+        ctx.fillText(e.hp+'',0,4);
+      }
       ctx.shadowBlur=0;ctx.restore();continue;
     }
 
@@ -910,10 +1018,21 @@ function updatePlayer(dt){
   if(player.invuln>0)player.invuln-=dt;
   if(player.cooldown>0)player.cooldown-=dt;
 
+  // Engine exhaust particles
+  if(Math.random()<0.6){
+    particles.push({
+      x:player.x+rand(-4,4),y:player.y+12,
+      vx:rand(-0.3,0.3),vy:rand(0.5,1.5),
+      life:rand(8,18),maxLife:18,
+      color:'#f80',size:rand(1,3),
+      decay:0.96,spark:false,ring:false
+    });
+  }
+
   player.trail.push({x:player.x+rand(-2,2),y:player.y+12});
   if(player.trail.length>8)player.trail.shift();
 
-  const cd=powerup==='rapid'?120:powerup==='laser'?100:powerup==='homing'?200:250;
+  const cd=powerup==='rapid'?120:powerup==='laser'?100:powerup==='homing'?200:powerup==='pierce'?200:250;
   if((K.Space||K.ArrowUp)&&player.cooldown<=0){
     playerFire(player.x,player.y-16);
     player.cooldown=cd;
@@ -921,6 +1040,23 @@ function updatePlayer(dt){
   player.thrust+=dt*0.005;
 
   updateDrones(dt);
+
+  // Gravity well: pull in enemy bullets and destroy them
+  if(powerup==='gravity'&&powerupTimer>0){
+    for(let i=eBullets.length-1;i>=0;i--){
+      const b=eBullets[i];
+      const d=dist(player.x,player.y,b.x,b.y);
+      if(d<80&&d>5){
+        const pull=0.08*(80-d)/80;
+        b.vx+=(player.x-b.x)/d*pull;
+        b.vy+=(player.y-b.y)/d*pull;
+      }
+      if(d<12){
+        eBullets.splice(i,1);
+        spawnParticles(b.x,b.y,3,'#0f8',1,12,2);
+      }
+    }
+  }
 
   if(K.KeyX&&hasShield){
     K.KeyX=0;
@@ -1018,16 +1154,97 @@ function drawPlayer(){
     ctx.beginPath();ctx.arc(0,0,24,0,Math.PI*2);ctx.stroke();
   }
 
+  if(powerup==='gravity'&&powerupTimer>0){
+    const pulse=0.5+0.5*Math.sin(Date.now()*0.005);
+    ctx.strokeStyle=`rgba(0,255,136,${0.15*pulse})`;
+    ctx.lineWidth=1.5;
+    ctx.shadowBlur=10;ctx.shadowColor='#0f8';
+    ctx.beginPath();ctx.arc(0,0,60+Math.sin(Date.now()*0.003)*8,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=`rgba(0,255,136,${0.08*pulse})`;
+    ctx.beginPath();ctx.arc(0,0,40+Math.sin(Date.now()*0.004)*5,0,Math.PI*2);ctx.stroke();
+  }
+
   ctx.shadowBlur=0;
   ctx.restore();
 
   drawDrones();
 }
 
+// ===================== UPGRADE SCREEN =====================
+let upgradeOptions=[];
+
+function generateUpgrades(){
+  const pool=['rapid','spread','double','laser','shield','homing','drone','pierce','gravity'];
+  const shuffled=[...pool].sort(()=>Math.random()-0.5);
+  upgradeOptions=shuffled.slice(0,3);
+}
+
+function drawUpgradeScreen(){
+  ctx.fillStyle='rgba(0,0,0,0.75)';
+  ctx.fillRect(0,0,W,H);
+
+  ctx.shadowBlur=20;ctx.shadowColor='#ff0';
+  ctx.fillStyle='#ff0';
+  ctx.font='bold 28px monospace';
+  ctx.textAlign='center';
+  ctx.fillText('CHOOSE UPGRADE',cx,120);
+
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#aaa';
+  ctx.font='13px monospace';
+  ctx.fillText('(Press 1, 2, or 3)',cx,150);
+
+  const labels=['[1]','[2]','[3]'];
+  const descriptions={
+    rapid:'FAST FIRE RATE',spread:'5-WAY SPREAD',double:'DUAL SHOT',
+    laser:'HIGH SPEED LASER',shield:'ABSORB HITS',homing:'TRACKING SHOT',
+    drone:'ORBITING DRONES',pierce:'PIERCING SHOT',gravity:'GRAVITY WELL'
+  };
+
+  for(let i=0;i<3;i++){
+    const t=upgradeOptions[i];
+    const x=cx+(i-1)*140;
+    const y=260;
+    const col=POWERUP_COLORS[t]||'#fff';
+
+    ctx.shadowBlur=20;ctx.shadowColor=col;
+    ctx.strokeStyle=col;ctx.lineWidth=2;
+    ctx.fillStyle='rgba(0,0,0,0.4)';
+    ctx.fillRect(x-50,y-30,100,60);
+    ctx.strokeRect(x-50,y-30,100,60);
+
+    ctx.fillStyle='#fff';
+    ctx.font='bold 13px monospace';
+    ctx.textAlign='center';
+    ctx.fillText(labels[i],x,y-8);
+    ctx.fillStyle=col;
+    ctx.font='bold 14px monospace';
+    ctx.fillText(t.toUpperCase(),x,y+12);
+    ctx.fillStyle='#888';
+    ctx.font='9px monospace';
+    ctx.fillText(descriptions[t]||'',x,y+28);
+    ctx.shadowBlur=0;
+  }
+
+  ctx.fillStyle='#666';
+  ctx.font='10px monospace';
+  ctx.fillText('CURRENT POWERUP',cx,370);
+  if(powerup){
+    ctx.fillStyle=POWERUP_COLORS[powerup]||'#fff';
+    ctx.font='bold 14px monospace';
+    ctx.fillText(powerup.toUpperCase(),cx,388);
+  }else{
+    ctx.fillStyle='#888';
+    ctx.font='13px monospace';
+    ctx.fillText('NONE',cx,388);
+  }
+}
+
 // ===================== GAME STATE =====================
 let state='title',score=0,hi=0,wave=1;
 let goTimer=0,combo=0,comboTimer=0,lastKillTime=0;
 let waveTransitionTimer=0,transitionProgress=0;
+let bossEntranceFlash=0;
 
 function startGame(){
   state='playing';score=0;wave=1;combo=0;comboTimer=0;
@@ -1037,22 +1254,29 @@ function startGame(){
   formAngle=0;diveTimer=rand(1,3)*1000;
   formationPattern=0;formationPatternTimer=0;
   asteroidTimer=3000;transitionProgress=0;
+  sideSpawnTimer=4000;bossEntranceFlash=0;
   initPlanets();
 }
 
 function nextWave(){
   wave++;
   const isBoss=wave%3===0;
-  if(isBoss){playBossWarn();addPopup(cx,200,'BOSS INCOMING!','#f44')}
+  if(isBoss){
+    playBossWarn();
+    addPopup(cx,200,'BOSS INCOMING!','#f44');
+    bossEntranceFlash=20;
+  }
   enemies=createEnemies(wave,isBoss);
   pBullets=[];eBullets=[];formAngle=0;
   diveTimer=isBoss?10000:rand(1,2)*1000;
   formationPattern=0;formationPatternTimer=0;
+  sideSpawnTimer=4000;
   state='playing';transitionProgress=0;
 }
 
 function update(dt){
   updateStars();updateShake(dt);updatePopups();
+  if(bossEntranceFlash>0)bossEntranceFlash-=dt*0.02;
 
   if(state==='title'){
     if(K.Space){K.Space=0;initAudio();startGame()}
@@ -1063,14 +1287,24 @@ function update(dt){
     if(goTimer>1000&&K.Space){K.Space=0;state='title';initStars()}
     return;
   }
+  if(state==='upgrade'){
+    if(K.Digit1||K.Numpad1){K.Digit1=0;K.Numpad1=0;applyUpgrade(0)}
+    if(K.Digit2||K.Numpad2){K.Digit2=0;K.Numpad2=0;applyUpgrade(1)}
+    if(K.Digit3||K.Numpad3){K.Digit3=0;K.Numpad3=0;applyUpgrade(2)}
+    updateParticles();updatePowerups(dt);
+    return;
+  }
   if(state==='waveClear'){
     transitionProgress=Math.min(1,transitionProgress+dt*0.002);
     updateParticles();updatePowerups(dt);
     updateAsteroids(dt);
     waveTransitionTimer+=dt;
-    if(waveTransitionTimer>2000){
+    if(waveTransitionTimer>1500){
       transitionProgress=0;
-      nextWave();waveTransitionTimer=0;
+      generateUpgrades();
+      state='upgrade';
+      waveTransitionTimer=0;
+      playUpgrade();
     }
     return;
   }
@@ -1095,7 +1329,7 @@ function update(dt){
     const b=pBullets[i];let hit=false;
     for(const e of enemies){
       if(!e.alive)continue;
-      const hitR=e.boss?28:e.type===4?10:14;
+      const hitR=e.boss?28:e.type===4?10:e.type===5?10:e.type===6?14:14;
       if(Math.abs(b.x-e.x)<hitR&&Math.abs(b.y-e.y)<hitR){
         hit=true;
         if(e.boss){
@@ -1112,6 +1346,35 @@ function update(dt){
             addPopup(e.x,e.y-20,'BOSS DEFEATED!','#f44');
             powerups.push({x:e.x,y:e.y,type:'bomb',vy:0,life:200,size:12,pulse:0});
           }
+        }else if(e.type===6){
+          e.hp=(e.hp||3)-1;
+          spawnParticles(b.x,b.y,5,'#f8f',3,15);
+          if(e.hp<=0){
+            e.alive=false;
+            const pts=e.pts;
+            score+=pts;
+            spawnExplosion(e.x,e.y,e.color||'#f8f',15);
+            shake(4);
+            playSplit();
+            addPopup(e.x,e.y,'+'+pts,'#f8f');
+            // Split into two smaller enemies
+            for(let s=0;s<2;s++){
+              enemies.push({
+                x:e.x+rand(-10,10),y:e.y+rand(-5,5),
+                fx:0,fy:0,type:5,col:0,row:0,
+                state:'dive',alive:true,diveP:e.diveP||0.3,
+                startX:e.x+rand(-10,10),startY:e.y+rand(-5,5),
+                targetX:player.x+rand(-80,80),targetY:H+40,
+                amp:rand(20,40),diveSpd:0.0009,retP:0,retSpd:0,
+                shootT:99999,pts:100,color:'#f4f',
+                divePattern:randInt(0,2),wingPhase:0,
+                formationOffset:{x:0,y:0}
+              });
+            }
+            spawnPowerup(e.x,e.y);
+          }
+          if(!b.pierce)break;
+          continue;
         }else{
           e.alive=false;
           const pts=e.pts;
@@ -1128,10 +1391,10 @@ function update(dt){
           playExplosion();
           spawnPowerup(e.x,e.y);
         }
-        break;
+        if(!b.pierce)break;
       }
     }
-    if(hit)pBullets.splice(i,1);
+    if(hit&&!b.pierce)pBullets.splice(i,1);
   }
 
   // Enemy bullets hit player
@@ -1171,6 +1434,23 @@ function update(dt){
   }
 }
 
+function applyUpgrade(idx){
+  const t=upgradeOptions[idx];
+  // Permanent powerup - overwrites current
+  powerup=t;
+  powerupTimer=powerup==='drone'?10000:powerup==='gravity'?8000:8000;
+  if(t==='drone'){
+    player.drones=[{angle:0,shootTimer:0},{angle:Math.PI,shootTimer:500}];
+  }else{
+    player.drones=[];
+  }
+  if(t==='shield')hasShield=true;
+  addPopup(cx,420,t.toUpperCase()+'!',POWERUP_COLORS[t],18);
+  playPowerup();
+  transitionProgress=0;
+  nextWave();
+}
+
 function playerHit(){
   if(!player.active||player.invuln>0)return;
   player.lives--;
@@ -1199,8 +1479,19 @@ function draw(){
   ctx.save();
   ctx.translate(shakeX,shakeY);
 
+  // Boss entrance flash
+  if(bossEntranceFlash>0){
+    const a=clamp(bossEntranceFlash/20,0,1);
+    ctx.fillStyle=`rgba(255,0,0,${a*0.15})`;
+    ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle=`rgba(255,68,68,${a*0.5})`;
+    ctx.lineWidth=3;
+    ctx.strokeRect(4,4,W-8,H-8);
+  }
+
   if(state==='title'){drawTitle();ctx.restore();crtOverlay();return}
   if(state==='gameOver'){drawHUD();drawEnemies();drawParticles();drawPowerups();drawAsteroids();drawGO();ctx.restore();crtOverlay();return}
+  if(state==='upgrade'){drawHUD();drawEnemies();drawParticles();drawPowerups();drawAsteroids();drawUpgradeScreen();ctx.restore();crtOverlay();return}
   if(state==='waveClear'){
     drawHUD();drawEnemies();drawParticles();drawPowerups();drawAsteroids();
     drawWarpTransition();
@@ -1306,7 +1597,8 @@ function drawTitle(){
   ctx.fillStyle='#666';
   ctx.font='11px monospace';
   ctx.fillText('POWER-UPS: RAPID SPREAD DOUBLE LASER SHIELD BOMB HOMING DRONE',cx,400);
-  ctx.fillText('DEFEAT BOSS EVERY 3 WAVES',cx,418);
+  ctx.fillText('PIERCE GRAVITY | BOSS EVERY 3 WAVES',cx,418);
+  ctx.fillText('NEW: SPLITTER ENEMIES + UPGRADE SCREEN',cx,436);
 
   ctx.save();
   ctx.translate(cx,490);
@@ -1328,7 +1620,7 @@ function drawTitle(){
 
   ctx.fillStyle='#555';
   ctx.font='10px monospace';
-  ctx.fillText('ENHANCED EDITION',cx,560);
+  ctx.fillText('ENHANCED EDITION v2',cx,560);
 }
 
 function drawGO(){
