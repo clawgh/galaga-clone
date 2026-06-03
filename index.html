@@ -37,9 +37,14 @@ function dist(x1,y1,x2,y2){return Math.hypot(x2-x1,y2-y1)}
 const WEAPON_XP=[0,60,180,360,600];
 const WEAPON_NAMES=['MK-I','MK-II','MK-III','MK-IV','MK-V'];
 
-// ===================== HIT STOP =====================
+// ===================== HIT STOP & NEAR MISS =====================
 let hitStopTimer=0;
+let nearMissTimer=0,nearMissActive=false,nearMissStreak=0;
 function triggerHitStop(dur){hitStopTimer=Math.max(hitStopTimer,dur||150)}
+function triggerNearMiss(dur){
+  nearMissTimer=Math.max(nearMissTimer,dur||300);
+  nearMissActive=true;
+}
 
 // ===================== BACKGROUND NEBULA =====================
 const nebCanvas=document.createElement('canvas');
@@ -2272,6 +2277,7 @@ function drawUpgradeScreen(){
 
 // ===================== GAME STATE =====================
 let state='title',score=0,hi=parseInt(localStorage.getItem('galagaHi'))||0,wave=1;
+let timeScale=1;
 let goTimer=0,combo=0,comboTimer=0,lastKillTime=0;
 let waveTransitionTimer=0,transitionProgress=0;
 let bossEntranceFlash=0;
@@ -2306,9 +2312,10 @@ function nextWave(){
   state='playing';transitionProgress=0;waveStartTime=Date.now();speedBonus=0;
 }
 
-function update(dt){
-  // Hit stop
-  if(hitStopTimer>0){hitStopTimer=Math.max(0,hitStopTimer-dt);draw();requestAnimationFrame(loop);return}
+function update(dt,raw){
+  raw=raw||dt;
+  // Hit stop (unscaled)
+  if(hitStopTimer>0){hitStopTimer=Math.max(0,hitStopTimer-raw);draw();requestAnimationFrame(loop);return}
 
   updateStars();updateShake(dt);updateFlash(dt);updatePopups();
   updateLaserBeams(dt);
@@ -2467,6 +2474,29 @@ function update(dt){
       }
     }
     if(hit&&!b.pierce)pBullets.splice(i,1);
+  }
+
+  // Near-miss detection
+  if(player.active&&player.invuln<=0&&!nearMissActive){
+    for(let i=eBullets.length-1;i>=0;i--){
+      const b=eBullets[i];
+      const d=Math.abs(b.x-player.x)+Math.abs(b.y-player.y);
+      if(d<22&&d>10&&b.y<player.y+10&&b.y>player.y-10){
+        nearMissStreak++;
+        const bonus=Math.floor(50*nearMissStreak*getRiskBonus());
+        score+=bonus;
+        addPopup(b.x,b.y,'NEAR MISS x'+nearMissStreak+'!','#4ff',10);
+        triggerNearMiss(250);
+        spawnRing(b.x,b.y,'#4ff',6,15);
+        spawnShockwave(player.x,player.y,'#4ff',30,2);
+        playPowerup();
+        break;
+      }
+    }
+  }
+  if(nearMissActive){
+    nearMissTimer--;
+    if(nearMissTimer<=0){nearMissActive=false;nearMissStreak=0}
   }
 
   if(player.active&&player.invuln<=0){
@@ -2763,8 +2793,10 @@ function drawWC(){
 // ===================== MAIN LOOP =====================
 let lastTime=0;
 function loop(t){
-  const dt=t-lastTime;lastTime=t;
-  if(dt<100&&dt>0){update(dt);draw()}
+  const raw=t-lastTime;lastTime=t;
+  timeScale=nearMissActive?0.2:1;
+  const dt=raw*timeScale;
+  if(raw<100&&raw>0){update(dt,raw);draw()}
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
