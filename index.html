@@ -24,7 +24,7 @@ function resize(){
 window.addEventListener('resize',resize);resize();
 
 const K={};
-document.addEventListener('keydown',e=>{if(!K[e.code])K[e.code]=1;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyX','KeyZ','KeyC','ShiftLeft','ShiftRight','KeyV','KeyQ'].includes(e.code))e.preventDefault()});
+document.addEventListener('keydown',e=>{if(!K[e.code])K[e.code]=1;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyX','KeyZ','KeyC','ShiftLeft','ShiftRight','KeyV','KeyQ','Escape','KeyP'].includes(e.code))e.preventDefault()});
 document.addEventListener('keyup',e=>{K[e.code]=0;if(e.code==='Space')player._spaceReleased=true});
 document.addEventListener('mousedown',()=>{if(!audioCtx)initAudio()});
 
@@ -454,6 +454,12 @@ function playerFire(x,y){
     fireBullet(x,y,0,-9,false,'#f90');
     fireBullet(x+7,y,0.6,-9,false,'#f90');
     fireBullet(x+12,y,1.2,-9,false,'#f90');
+  }else if(powerup==='barrage'){
+    for(let i=-4;i<=4;i++)fireBullet(x+i*10,y-2,i*0.3,-9,false,'#ff4');
+    playSound(1200,0.06,'sawtooth',0.04);
+  }else if(powerup==='phase'){
+    fireBullet(x-6,y,0,-10,false,'#4ff');
+    fireBullet(x+6,y,0,-10,false,'#4ff');
   }else{
     fireBullet(player.x,player.y,0,-8,false,'#0ff');
   }
@@ -794,8 +800,8 @@ function drawBlackHoles(){
 }
 
 // ===================== POWERUPS =====================
-const POWERUP_TYPES=['rapid','spread','double','laser','shield','bomb','homing','drone','pierce','gravity','tesla','freeze','mine','vampire','beam','orbit','magnet','overdrive','blackhole','reflect'];
-const POWERUP_COLORS={rapid:'#ff0',spread:'#0ff',double:'#0f0',laser:'#f0f',shield:'#08f',bomb:'#f44',homing:'#f80',drone:'#0fa',pierce:'#ff8',gravity:'#0f8',tesla:'#fe0',freeze:'#8cf',mine:'#fa0',vampire:'#f4a',beam:'#f0f',orbit:'#0ff',magnet:'#0fa',overdrive:'#f90',blackhole:'#80f',reflect:'#0ff'};
+const POWERUP_TYPES=['rapid','spread','double','laser','shield','bomb','homing','drone','pierce','gravity','tesla','freeze','mine','vampire','beam','orbit','magnet','overdrive','blackhole','reflect','barrage','phase'];
+const POWERUP_COLORS={rapid:'#ff0',spread:'#0ff',double:'#0f0',laser:'#f0f',shield:'#08f',bomb:'#f44',homing:'#f80',drone:'#0fa',pierce:'#ff8',gravity:'#0f8',tesla:'#fe0',freeze:'#8cf',mine:'#fa0',vampire:'#f4a',beam:'#f0f',orbit:'#0ff',magnet:'#0fa',overdrive:'#f90',blackhole:'#80f',reflect:'#0ff',barrage:'#ff4',phase:'#4ff'};
 let powerups=[];
 let powerup=null,powerupTimer=0;
 let hasShield=false,shieldIsReflect=false;
@@ -842,6 +848,8 @@ function collectPowerup(pu){
   playPowerup();
   const t=pu.type;
   if(t==='shield'){hasShield=true;addPopup(pu.x,pu.y,'SHIELD!','#08f');return}
+  if(t==='barrage'){powerup=t;powerupTimer=7000;player.drones=[];addPopup(pu.x,pu.y,'BARRAGE!',POWERUP_COLORS[t]);return;}
+  if(t==='phase'){powerup=t;powerupTimer=6000;player.phaseActive=true;player.phaseTimer=6000;player.drones=[];playFreeze();addPopup(pu.x,pu.y,'PHASE!',POWERUP_COLORS[t]);return;}
   if(t==='bomb'){
     playBomb();triggerHitStop(100);
     for(const e of enemies){if(e.alive){e.alive=false;spawnParticles(e.x,e.y,15,e.color,5,30);score+=e.pts;}}
@@ -873,7 +881,7 @@ function drawPowerups(){
     ctx.fillStyle=col;ctx.globalAlpha=0.3;
     ctx.beginPath();ctx.arc(0,0,s-2,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
     ctx.fillStyle='#fff';ctx.font='bold 10px monospace';ctx.textAlign='center';
-    const labels={pierce:'P',gravity:'G',tesla:'T',freeze:'F',magnet:'M',overdrive:'O',blackhole:'B',reflect:'R'};
+    const labels={pierce:'P',gravity:'G',tesla:'T',freeze:'F',magnet:'M',overdrive:'O',blackhole:'B',reflect:'R',barrage:'*',phase:'~'};
     ctx.fillText(labels[pu.type]||pu.type[0].toUpperCase(),0,4);
     ctx.shadowBlur=0;ctx.restore();
   }
@@ -1903,7 +1911,7 @@ function drawMegaBoss(b){
 }
 
 // ===================== PLAYER =====================
-let player={x:cx,y:560,w:26,h:22,lives:3,invuln:0,cooldown:0,active:true,thrust:0,trail:[],drones:[],boostEnergy:100,teslaTimer:0,vx:0,weaponLevel:1,weaponXP:0,isCharging:false,chargeTime:0,mines:0,_spaceReleased:false,orbitProjs:[],overheat:0,overheatLock:0,secondaryPowerup:null,secondaryPowerupTimer:0};
+let player={x:cx,y:560,w:26,h:22,lives:3,invuln:0,cooldown:0,active:true,thrust:0,trail:[],drones:[],boostEnergy:100,teslaTimer:0,vx:0,weaponLevel:1,weaponXP:0,isCharging:false,chargeTime:0,mines:0,_spaceReleased:false,orbitProjs:[],overheat:0,overheatLock:0,secondaryPowerup:null,secondaryPowerupTimer:0,autoFire:false,phaseActive:false,phaseTimer:0,comboGlow:0};
 let nextLifeScore=10000;
 
 function resetPlayer(){
@@ -1915,10 +1923,18 @@ function resetPlayer(){
   powerup=null;powerupTimer=0;hasShield=false;shieldIsReflect=false;freezeTimer=0;
   teslaBolts=[];mines=[];nextLifeScore=10000;player.orbitProjs=[];
   beamActive=false;beamTargetY=0;blackHoles=[];player.secondaryPowerup=null;player.secondaryPowerupTimer=0;
+  player.autoFire=false;player.phaseActive=false;player.phaseTimer=0;player.comboGlow=0;
 }
 
 function updatePlayer(dt){
   if(!player.active)return;
+
+  // Auto-fire toggle
+  if(K.KeyF){K.KeyF=0;player.autoFire=!player.autoFire;addPopup(cx,100,player.autoFire?'AUTO-FIRE ON':'AUTO-FIRE OFF','#0ff',10)}
+
+  // Phase powerup timer
+  if(player.phaseActive&&player.phaseTimer>0){player.phaseTimer-=dt;if(player.phaseTimer<=0){player.phaseActive=false;addPopup(player.x,player.y-40,'PHASE ENDED','#4ff',9)}}
+
   const boosting=K.ShiftLeft||K.ShiftRight;
   const overdriveActive=powerup==='overdrive'&&powerupTimer>0;
   const boostSpeed=boosting&&player.boostEnergy>0?2.5:1;
@@ -1937,8 +1953,10 @@ function updatePlayer(dt){
   if(player.invuln>0)player.invuln-=dt;
   if(player.cooldown>0)player.cooldown-=dt;
 
+  const wantFire=K.Space||player.autoFire;
   if(!powerup||powerup==='vampire'){
-    if(K.Space&&!player.isCharging&&player.cooldown<=0&&player.chargeTime<=0){player.isCharging=true;player.chargeTime=0}
+    if(wantFire&&!player.isCharging&&player.cooldown<=0&&player.chargeTime<=0){player.isCharging=true;player.chargeTime=0}
+    if(K.Space&&player.isCharging){
     if(K.Space&&player.isCharging){
       player.chargeTime=Math.min(player.chargeTime+dt,2000);
       if(player.chargeTime>200&&Math.floor(player.chargeTime/400)!==Math.floor((player.chargeTime-dt)/400))playCharge();
@@ -2196,7 +2214,7 @@ function drawUpgradeScreen(){
     laser:'HIGH SPEED LASER',shield:'ABSORB HITS',homing:'TRACKING SHOT',
     drone:'ORBITING DRONES',pierce:'PIERCING SHOT',gravity:'GRAVITY WELL',
     tesla:'CHAIN LIGHTNING',freeze:'SLOW TIME',mine:'PROXIMITY MINES',
-    vampire:'LIFE STEAL',magnet:'ATTRACT ITEMS',overdrive:'FAST FIRE+XP',blackhole:'GRAVITY SINGULARITY',reflect:'BULLET DEFLECT'};
+    vampire:'LIFE STEAL',magnet:'ATTRACT ITEMS',overdrive:'FAST FIRE+XP',blackhole:'GRAVITY SINGULARITY',reflect:'BULLET DEFLECT',barrage:'WALL OF FIRE',phase:'INTANGIBLE FORM'};
   for(let i=0;i<3;i++){
     const t=upgradeOptions[i];const x=cx+(i-1)*140;const y=260;
     const col=POWERUP_COLORS[t]||'#fff';
@@ -2219,7 +2237,7 @@ function drawUpgradeScreen(){
 }
 
 // ===================== GAME STATE =====================
-let state='title',score=0,hi=0,wave=1;
+let state='title',score=0,hi=parseInt(localStorage.getItem('galagaHi'))||0,wave=1;
 let goTimer=0,combo=0,comboTimer=0,lastKillTime=0;
 let waveTransitionTimer=0,transitionProgress=0;
 let bossEntranceFlash=0;
@@ -2478,7 +2496,7 @@ function playerHit(){
   player.lives--;spawnExplosion(player.x,player.y,'#0cf',25);
   shake(8);flash(0.3,'#f44');playHit();player.trail=[];player.drones=[];
   player.secondaryPowerup=null;player.secondaryPowerupTimer=0;player.overheat=0;player.overheatLock=0;
-  if(player.lives<=0){player.active=false;setTimeout(()=>{state='gameOver';if(score>hi)hi=score;goTimer=0},1500)}
+  if(player.lives<=0){player.active=false;setTimeout(()=>{state='gameOver';if(score>hi){hi=score;try{localStorage.setItem('galagaHi',hi)}catch(e){}}goTimer=0},1500)}
   else{player.invuln=2000;player.x=cx;pBullets=[]}
 }
 
